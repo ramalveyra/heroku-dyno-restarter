@@ -1,94 +1,248 @@
 <?php
+date_default_timezone_set("UTC");
 
-Class HerokuDynoApi
+class Requests
 {
-	public $api;
-	public $app;
-
-	public function __construct(){
-		$this->api = '7457b4c6-f1ea-4c02-ac59-90d07bf47187';
-		$this->app = 'blooming-hollows-1843';
-
+	public $handle;
+ 
+	public function __construct()
+	{
+		$this->handle = curl_multi_init();
 	}
-
-	public function getDynos(){
-		$this->logger("Getting list of dynos for {$this->app}");
-		$url = "https://api.heroku.com/apps/{$this->app}/dynos";
-		$dyno_list =  json_decode($this->heroku_curl( $url ));
-		return $dyno_list;
-	}
-
-	public function restartDynos($option = array()){
-		if(isset($option['process'])){
-			if($option['process']=='onebyone'){
-				//get the dynos
-				$dyno_list = $this->getDynos();
-				if(!empty($dyno_list)){
-					foreach ($dyno_list as $dyno) {
-						//restart this dyno
-						$this->logger("Restarting {$dyno->name}");
-						$url = "https://api.heroku.com/apps/{$this->app}/dynos/{$dyno->id}";
-						$dyno_restart = $this->heroku_curl( $url, 'DELETE');
-					}
-				}
-			}
-		}
-	}
-
-	public function heroku_curl($url, $action = 'GET', $post_data = array(), $next_range = NULL){
-		$ch = curl_init( );
-		
-		curl_setopt( $ch, CURLOPT_URL, $url);
+ 
+	public function process($url,$action = 'GET' ,$api,$callback,$params=array())
+	{	
+		$ch = curl_init($url);
 		curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, $action);
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
 		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-		curl_setopt( $ch, CURLOPT_USERPWD, ":{$this->api}");
-		curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+		curl_setopt( $ch, CURLOPT_USERPWD, ":{$api}");
 		
-		// use the latest version of the API
+		curl_multi_add_handle($this->handle, $ch);
 		$content_type = array('Accept: application/vnd.heroku+json; version=3');
-		
-		if ($action == 'POST' || $action == 'DELETE')
-		{
+
+		if($action == 'PATCH'){
 			$content_type[] = 'Content-type: application/json';
-		}
-		else if ($action == 'GET')
-		{
-			if (is_null($next_range))
-				$content_type[] = "Range: hostname ..; max={$this->max};";
-			else
-			{
-				$content_type[] = "Range: hostname ]{$next_range}..; max={$this->max};";
-			}
 		}
 
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $content_type);
-		
-		if (!empty($post_data))
-		{
-	    	curl_setopt($ch, CURLOPT_POSTFIELDS,json_encode($post_data));
+
+		if(isset($params['post_data'])){
+			if(!empty($params['post_data'])){
+				curl_setopt($ch, CURLOPT_POSTFIELDS,json_encode($params['post_data']));
+			}
 		}
+
+		curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => TRUE));
+ 
+		do {
+			$mrc = curl_multi_exec($this->handle, $active);
+ 
+			if ($state = curl_multi_info_read($this->handle))
+			{
+				//print_r($state);
+				$info = curl_getinfo($state['handle']);
+				//print_r($info);
+				$callback(curl_multi_getcontent($state['handle']), $info, $params);
+				curl_multi_remove_handle($this->handle, $state['handle']);
+			}
+ 
+			usleep(10000); // stop wasting CPU cycles and rest for a couple ms
+ 
+		} while ($mrc == CURLM_CALL_MULTI_PERFORM || $active);
+ 
+	}
+ 
+	public function __destruct()
+	{
+		curl_multi_close($this->handle);
+	}
+}
+
+class HerokuDynoApi
+{
+	public $request;
+	public $api;
+	public $target_app;
+	public $restarter_app;
+	public $time_interval;
+
+	public function __construct(){
+		$this->request = new Requests;
+	}
+
+	public function setVars($creds = array()){
+		$this->api = $creds['api'];
+		$this->target_app = $creds['target_app'];
+		$this->restarter_app = $creds['restarter_app'];
+		$this->time_interval = $creds['time_interval'];
+	}
+
+	public function getDynos($callback){
+		$this->logger("Getting list of dynos for $this->target_app");
+		$url = "https://api.heroku.com/apps/{$this->target_app}/dynos";
+
+		$dyno_list = $this->request->process($url,'GET',$this->api,$callback);
+	}
+
+	public function restartDynos($option = array()){
+		# Check variables first
+		$this->logger($this->api).PHP_EOL;
+		$this->logger($this->restarter_app).PHP_EOL;
+		$this->logger($this->target_app).PHP_EOL;
+		$this->logger($this->target_app).PHP_EOL;
+		return;
+
+		# Check time of last restart first
+		$callback = function($data,$info,$params = array()){
+			$config_vars = json_decode($data);
+			if(isset($config_vars->SCHEDULER_LAST_DYNO_RESTART)){
+				
+				$current_time = new DateTime('now');
+				$time_last_restart = new DateTime($config_vars->SCHEDULER_LAST_DYNO_RESTART);
+				$elapsed = $current_time->getTimestamp() - $time_last_restart->getTimestamp();
+
+				# for testing test in minutes
+				$elapsed = floor($elapsed / 60);
+
+				if($elapsed >= $this->time_interval){
+					//if(isset($option['process'])){
+						//if($option['process']=='onebyone'){
+							//get the dynos
+							$fetched_dynos_callback = function($data, $info)
+							{
+								$dyno_list = json_decode($data);
+								
+								if(!empty($dyno_list)){
+									$this->restart_dyno_recursive(0, $dyno_list);
+								}
+							};
+							$this->getDynos($fetched_dynos_callback);
+						//}
+					//}
+				}
+			}
+		};
+
+		$this->getConfigVars($this->restarter_app,$callback);
+	}
+
+	public function restart_dyno_recursive($dyno_index, $dyno_list){
+
+		$callback = function($data,$info,$params)
+		{
+			//now check the dyno status if it has restarted
+			if(isset($params['dyno'])){
+				$url = "https://api.heroku.com/apps/{$this->target_app}/dynos/{$params['dyno']->name}";
+				$this->request->process(
+					$url,
+					'GET',
+					$this->api,
+					array($this,'check_dyno'),
+					array('dyno'=>$params['dyno'],'dyno_index'=>$params['dyno_index'],'dyno_list'=>$params['dyno_list'])
+				);
+			}
+		};
 		
-		$http_result = curl_exec($ch);
-		$error       = curl_error($ch);
-	    $http_code   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		if($dyno_index < count($dyno_list)){
+			//restart the dyno
+			$dyno = $dyno_list[$dyno_index];
+			$this->logger("Restarting dyno: {$dyno->name}");
+			$url = "https://api.heroku.com/apps/{$this->target_app}/dynos/{$dyno->id}";
+			$this->request->process(
+				$url,
+				'DELETE',
+				$this->api,
+				$callback,
+				array('dyno'=>$dyno,'dyno_index'=>$dyno_index,'dyno_list'=>$dyno_list)
+			);
+		}else{
+			//restart completed, now update the config var of this app
+			$now = new DateTime;
+			$this->updateConfigVars(
+				$this->restarter_app,
+				array(
+					'post_data'=>array(
+						'SCHEDULER_LAST_DYNO_RESTART'=>$now->format('d-m-Y H:i:s')
+					)
+				)
+			);
+		}
+	}
 
-	    curl_close($ch);
-
-	    return $http_result;
-	    
+	public function check_dyno($data,$info,$params){
+		$dyno_info = json_decode($data);
+		# TODO: add timeout
+		if(isset($dyno_info->state)){
+			$this->logger("Dyno status: {$dyno_info->state}");
+			if($dyno_info->state !== 'up'){
+				//do another check
+				if(isset($params['dyno'])){
+					$url = "https://api.heroku.com/apps/{$this->target_app}/dynos/{$params['dyno']->name}";
+					$this->request->process(
+						$url,
+						'GET',
+						$this->api,
+						array($this,'check_dyno'),
+						array('dyno'=>$params['dyno'],'dyno_index'=>$params['dyno_index'],'dyno_list'=>$params['dyno_list'])
+					);
+				}
+			}else{
+				$this->logger("Dyno restarted.");
+				# proceed to next dyno
+				$dyno_index = $params['dyno_index']+1;
+				
+				$this->restart_dyno_recursive($dyno_index, $params['dyno_list']);
+			}
+		}
 	}
 
 	public function logger($msg = null){
 		if($msg!==null)
 			fwrite(STDOUT,$msg. PHP_EOL);
 	}
+
+	public function getConfigVars($app, $callback, $params = array()){
+		$url = "https://api.heroku.com/apps/{$app}/config-vars";
+		
+		$this->request->process(
+			$url,
+			'GET',
+			$this->api,
+			$callback
+		);
+	}
+
+	public function updateConfigVars($app, $params = array()){
+		$url = "https://api.heroku.com/apps/{$app}/config-vars";
+		$callback = function($data, $info){
+			//var_dump(json_decode($data));
+			$this->logger('Updated scheduler timestamp');
+		};
+		$this->request->process(
+			$url,
+			'PATCH',
+			$this->api,
+			$callback,
+			$params
+		);
+	}
 }
 
+$api = getenv('RESTARTER_API');
+$restarter_app = getenv('RESTARTER_APP');
+$target_app = getenv('TARGET_APP');
+$time_interval = getenv('TIME_INTERVAL'); //mins
+
 $herokuDynoObj = new HerokuDynoApi;
-//$process_arr = array('onebyone','timedinterval', 'all');
-$herokuDynoObj->restartDynos(array('process'=>'onebyone'));
+$herokuDynoObj->setVars(
+	array(
+		'api'=>$api, 
+		'target_app'=>$target_app, 
+		'restarter_app'=>$restarter_app,
+		'time_interval' => $time_interval
+	));
+$herokuDynoObj->restartDynos();
+
 
 
 		
