@@ -63,7 +63,7 @@ class HerokuDynoApi
 	public $target_app;
 	public $restarter_app;
 	public $time_interval;
-	public $debug = false;
+	public $debug = true;
 
 	public function __construct(){
 		$this->request = new Requests;
