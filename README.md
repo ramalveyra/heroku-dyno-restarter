@@ -1,32 +1,21 @@
-# php-getting-started
+# Dyno Restarter
 
-A barebones PHP app that makes use of the [Silex](http://silex.sensiolabs.org/) web framework, which can easily be deployed to Heroku.
+A simple php script that will restart an app dynos using heroku api
 
-This application support the [Getting Started with PHP on Heroku](https://devcenter.heroku.com/articles/getting-started-with-php) article - check it out.
+To use:
 
-## Running Locally
+Add the following to the app config variable key pairs:
 
-Make sure you have PHP, Apache and Composer installed.  Also, install the [Heroku Toolbelt](https://toolbelt.heroku.com/).
+``SCHEDULER_LAST_DYNO_RESTART``
 
-```sh
-$ git clone git@github.com:heroku/php-getting-started.git # or clone your own fork
-$ cd php-getting-started
-$ composer update
-$ foreman start web
-```
+Date of when to start the check. Suggested time is date of first execution time is 00:00:00
+ 
+`` RESTARTER_API:{YOUR HEROKU API KEY}``
 
-Your app should now be running on [localhost:5000](http://localhost:5000/).
+`` RESTARTER_APP:{The app name of the where the script will run} ``
 
-## Deploying to Heroku
+`` TARGET_APP:{The app name where dynos will be restarted}``
 
-```
-$ heroku create
-$ git push heroku master
-$ heroku open
-```
+`` TIME_INTERVAL:{The time in hours when dynos will be restarted}``
 
-## Documentation
-
-For more information about using PHP on Heroku, see these Dev Center articles:
-
-- [PHP on Heroku](https://devcenter.heroku.com/categories/php)
+Add a scheduler using Heroku Scheduler using ``php web/restartDyno.php``.
