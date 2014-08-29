@@ -67,7 +67,7 @@ class HerokuDynoApi
 
 	public function __construct(){
 		$this->request = new Requests;
-		$this->debug = getenv('SHOW_DEBUG_LOGS') == 'TRUE' ? true : false;
+		$this->debug = getenv('SHOW_DEBUG_LOGS') == 'TRUE' ? TRUE : FALSE;
 	}
 
 	public function setVars($creds = array()){
@@ -189,7 +189,7 @@ class HerokuDynoApi
 	}
 
 	public function logger($msg = null, $force_show = false){
-		if($this->debug || $force_show){
+		if($this->debug == TRUE || $force_show == TRUE){
 			if($msg!==null)
 				fwrite(STDOUT,$msg. PHP_EOL);
 		}
