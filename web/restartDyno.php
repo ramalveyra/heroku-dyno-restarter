@@ -63,10 +63,11 @@ class HerokuDynoApi
 	public $target_app;
 	public $restarter_app;
 	public $time_interval;
-	public $debug = true;
+	public $debug = false;
 
 	public function __construct(){
 		$this->request = new Requests;
+		$this->debug = getenv('SHOW_DEBUG_LOGS') == 'TRUE' ? true : false;
 	}
 
 	public function setVars($creds = array()){
