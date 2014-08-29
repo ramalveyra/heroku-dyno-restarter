@@ -94,7 +94,7 @@ class HerokuDynoApi
 				$elapsed = $current_time->getTimestamp() - $time_last_restart->getTimestamp();
 
 				# for testing test in minutes
-				$elapsed = floor($elapsed / 60);
+				$elapsed = floor($elapsed / (60*60));
 
 				if($elapsed >= $this->time_interval){
 					//if(isset($option['process'])){
@@ -223,7 +223,7 @@ class HerokuDynoApi
 $api = getenv('RESTARTER_API');
 $restarter_app = getenv('RESTARTER_APP');
 $target_app = getenv('TARGET_APP');
-$time_interval = getenv('TIME_INTERVAL'); //mins
+$time_interval = getenv('TIME_INTERVAL'); //in hours
 
 
 $herokuDynoObj = new HerokuDynoApi;
