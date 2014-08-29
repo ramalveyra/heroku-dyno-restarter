@@ -19,3 +19,6 @@ Date of when to start the check. Suggested time is date of first execution time 
 `` TIME_INTERVAL:{The time in hours when dynos will be restarted}``
 
 Add a scheduler using Heroku Scheduler using ``php web/restartDyno.php``.
+
+##Contributors
+[@ramalveyra](https://github.com/ramalveyra)
