@@ -65,6 +65,7 @@ class HerokuDynoApi
 	public $target_app;
 	public $restarter_app;
 	public $time_interval;
+	public $debug = false;
 
 	public function __construct(){
 		$this->request = new Requests;
@@ -85,13 +86,6 @@ class HerokuDynoApi
 	}
 
 	public function restartDynos($option = array()){
-		# Check variables first
-		$this->logger($this->api).PHP_EOL;
-		$this->logger($this->restarter_app).PHP_EOL;
-		$this->logger($this->target_app).PHP_EOL;
-		$this->logger($this->target_app).PHP_EOL;
-		return;
-
 		# Check time of last restart first
 		$callback = function($data,$info,$params = array()){
 			$config_vars = json_decode($data);
@@ -122,7 +116,6 @@ class HerokuDynoApi
 				}
 			}
 		};
-
 		$this->getConfigVars($this->restarter_app,$callback);
 	}
 
@@ -130,7 +123,7 @@ class HerokuDynoApi
 
 		$callback = function($data,$info,$params)
 		{
-			//now check the dyno status if it has restarted
+			//now check the dyno status if it has been restarted
 			if(isset($params['dyno'])){
 				$url = "https://api.heroku.com/apps/{$this->target_app}/dynos/{$params['dyno']->name}";
 				$this->request->process(
@@ -146,7 +139,7 @@ class HerokuDynoApi
 		if($dyno_index < count($dyno_list)){
 			//restart the dyno
 			$dyno = $dyno_list[$dyno_index];
-			$this->logger("Restarting dyno: {$dyno->name}");
+			$this->logger("Restarting dyno: {$dyno->name}", TRUE);
 			$url = "https://api.heroku.com/apps/{$this->target_app}/dynos/{$dyno->id}";
 			$this->request->process(
 				$url,
@@ -187,7 +180,7 @@ class HerokuDynoApi
 					);
 				}
 			}else{
-				$this->logger("Dyno restarted.");
+				$this->logger("Dyno {$params['dyno']->name} restarted.", TRUE);
 				# proceed to next dyno
 				$dyno_index = $params['dyno_index']+1;
 				
@@ -196,9 +189,11 @@ class HerokuDynoApi
 		}
 	}
 
-	public function logger($msg = null){
-		if($msg!==null)
-			fwrite(STDOUT,$msg. PHP_EOL);
+	public function logger($msg = null, $force_show = false){
+		if($this->debug || $force_show){
+			if($msg!==null)
+				fwrite(STDOUT,$msg. PHP_EOL);
+		}
 	}
 
 	public function getConfigVars($app, $callback, $params = array()){
@@ -215,7 +210,6 @@ class HerokuDynoApi
 	public function updateConfigVars($app, $params = array()){
 		$url = "https://api.heroku.com/apps/{$app}/config-vars";
 		$callback = function($data, $info){
-			//var_dump(json_decode($data));
 			$this->logger('Updated scheduler timestamp');
 		};
 		$this->request->process(
@@ -232,6 +226,7 @@ $api = getenv('RESTARTER_API');
 $restarter_app = getenv('RESTARTER_APP');
 $target_app = getenv('TARGET_APP');
 $time_interval = getenv('TIME_INTERVAL'); //mins
+
 
 $herokuDynoObj = new HerokuDynoApi;
 $herokuDynoObj->setVars(
