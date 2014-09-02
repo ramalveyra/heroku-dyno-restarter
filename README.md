@@ -24,3 +24,6 @@ Add a scheduler using Heroku Scheduler using ``php web/restartDyno.php``.
 
 ##Contributors
 [@ramalveyra](https://github.com/ramalveyra)
+
+##Credits
+[@jonmountjoy(https://github.com/jonmountjoy)] - php-getting-started(https://github.com/heroku/php-getting-started)
