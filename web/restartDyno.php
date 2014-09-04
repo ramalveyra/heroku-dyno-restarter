@@ -66,10 +66,12 @@ class HerokuDynoApi
 	public $debug = false;
 	public $scheduler_last_restart;
 	public $last_restarted_app;
+	public $time_executed;
 
 	public function __construct(){
 		$this->request = new Requests;
 		$this->debug = getenv('SHOW_DEBUG_LOGS') == 'TRUE' ? TRUE : FALSE;
+		$this->time_executed = new DateTime;
 	}
 
 	public function setVars($creds = array()){
@@ -144,10 +146,16 @@ class HerokuDynoApi
 				
 				$elapsed = $current_time->getTimestamp() - $time_last_restart->getTimestamp();
 
-				# for testing test in minutes
-				$elapsed = floor($elapsed / (60*60));
 
-				$this->logger("Hours since last update: {$elapsed}");
+				if(getenv('RESTARTER_ENV')=='LOCAL'){
+					# for testing test in minutes
+					$elapsed = floor($elapsed / (60));
+					$this->logger("Minutes since last update: {$elapsed}");
+				}else{
+					$elapsed = floor($elapsed / (60*60));
+					$this->logger("Hours since last update: {$elapsed}");	
+				}
+				
 
 				if($elapsed >= $this->time_interval){
 					$fetched_dynos_callback = function($data, $info)
@@ -205,8 +213,7 @@ class HerokuDynoApi
 				);
 			}else{
 				//restart completed, now update the config var of this app
-				$now = new DateTime;
-				$this->scheduler_last_restart->{$this->target_app} = $now->format('d-m-Y H:i:s');
+				$this->scheduler_last_restart->{$this->target_app} = $this->time_executed->format('d-m-Y H:i:s');
 				$this->scheduler_last_restart->{"last-restarted-app"} = $this->target_app;
 				$this->updateConfigVars(
 					$this->restarter_app,
@@ -299,7 +306,3 @@ $herokuDynoObj->setVars(
 		'time_interval' => $time_interval
 	));
 $herokuDynoObj->restartDynos();
-
-
-
-		
