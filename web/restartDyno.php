@@ -64,6 +64,8 @@ class HerokuDynoApi
 	public $restarter_app;
 	public $time_interval;
 	public $debug = false;
+	public $scheduler_last_restart;
+	public $last_restarted_app;
 
 	public function __construct(){
 		$this->request = new Requests;
@@ -78,7 +80,8 @@ class HerokuDynoApi
 	}
 
 	public function getDynos($callback){
-		$this->logger("Getting list of dynos for $this->target_app");
+		$this->logger("Getting list of dynos for {$this->target_app}");
+
 		$url = "https://api.heroku.com/apps/{$this->target_app}/dynos";
 
 		$dyno_list = $this->request->process($url,'GET',$this->api,$callback);
@@ -86,14 +89,59 @@ class HerokuDynoApi
 
 	public function restartDynos($option = array()){
 		# Check time of last restart first
-		$this->logger("Starting restartDynos");
+		$this->logger("preparing dynos to restart");
 
 		$callback = function($data,$info,$params = array()){
+			
 			$config_vars = json_decode($data);
+
 			if(isset($config_vars->SCHEDULER_LAST_DYNO_RESTART)){
+
+				// evaluate config vars
+				// check the target apps
+				$target_apps = explode(",",$this->target_app);
+				if(!is_array($target_apps) && empty($target_apps)){
+					$this->logger("Restart dyno failed. Invalid target app");
+					return;
+				}
+
+				// check last restart info
+				// config var must be json
+				$this->scheduler_last_restart = json_decode($config_vars->SCHEDULER_LAST_DYNO_RESTART);
+
+				if($this->scheduler_last_restart == NULL){
+					$this->logger("Restart dyno failed. Invalid config var 'SCHEDULER_LAST_DYNO_RESTART'");
+					return;
+				}
+
+				$this->last_restarted_app = $this->scheduler_last_restart->{"last-restarted-app"};
+
+				$last_app_key = array_search($this->last_restarted_app, $target_apps);
+
+				if($last_app_key === FALSE){
+					$this->logger("Restart dyno failed. Invalid target app");
+					return;
+				}
+
+				$this->target_app = isset($target_apps[$last_app_key+1]) ? $target_apps[$last_app_key+1] : $target_apps[0];
+
+				$this->logger("Checking info for {$this->target_app}");
+
+				// get the last restart timestamp
+				$time_last_restart = new DateTime($this->scheduler_last_restart->{$this->target_app});
+
+				// get the time interval
+				$time_interval = json_decode($this->time_interval);
+
+				if($time_interval == NULL){
+					$this->logger("Restart dyno failed. Invalid time interval");
+					return;
+				}
+
+				$this->time_interval = $time_interval->{$this->target_app};
 				
 				$current_time = new DateTime('now');
-				$time_last_restart = new DateTime($config_vars->SCHEDULER_LAST_DYNO_RESTART);
+				
 				$elapsed = $current_time->getTimestamp() - $time_last_restart->getTimestamp();
 
 				# for testing test in minutes
@@ -102,24 +150,21 @@ class HerokuDynoApi
 				$this->logger("Hours since last update: {$elapsed}");
 
 				if($elapsed >= $this->time_interval){
-					//if(isset($option['process'])){
-						//if($option['process']=='onebyone'){
-							//get the dynos
-							$fetched_dynos_callback = function($data, $info)
-							{
-								$dyno_list = json_decode($data);
-								
-								$dynos_to_restart = count($dyno_list);
-								
-								$this->logger("Number of dynos to restart: {$dynos_to_restart}");
+					$fetched_dynos_callback = function($data, $info)
+					{
+						$dyno_list = json_decode($data);
+						
+						$dynos_to_restart = count($dyno_list);
 
-								if(!empty($dyno_list)){
-									$this->restart_dyno_recursive(0, $dyno_list);
-								}
-							};
-							$this->getDynos($fetched_dynos_callback);
-						//}
-					//}
+						$this->logger("Number of dynos to restart: {$dynos_to_restart}");
+
+						if(!empty($dyno_list)){
+							$this->restart_dyno_recursive(0, $dyno_list);
+						}
+					};
+					$this->getDynos($fetched_dynos_callback);
+				}else{
+					$this->logger("Nothing to restart.");
 				}
 			}
 		};
@@ -161,11 +206,13 @@ class HerokuDynoApi
 			}else{
 				//restart completed, now update the config var of this app
 				$now = new DateTime;
+				$this->scheduler_last_restart->{$this->target_app} = $now->format('d-m-Y H:i:s');
+				$this->scheduler_last_restart->{"last-restarted-app"} = $this->target_app;
 				$this->updateConfigVars(
 					$this->restarter_app,
 					array(
 						'post_data'=>array(
-							'SCHEDULER_LAST_DYNO_RESTART'=>$now->format('d-m-Y H:i:s')
+							'SCHEDULER_LAST_DYNO_RESTART'=>json_encode($this->scheduler_last_restart)
 						)
 					)
 				);
